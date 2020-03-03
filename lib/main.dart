@@ -2,258 +2,294 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:hive/hive.dart';
 
-const sketchBox = 'sketchpadBox';
+const String contactsBoxName = "contacts";
+
+@HiveType(typeId: 1)
+enum Relationship {
+  @HiveField(0)
+  Family,
+  @HiveField(1)
+  Friend,
+}
+const relationshipString = <Relationship, String>{
+  Relationship.Family: "Family",
+  Relationship.Friend: "Friend",
+};
+
+@HiveType(typeId: 0)
+class Contact {
+  @HiveField(0)
+  String name;
+  @HiveField(1)
+  int age;
+  @HiveField(2)
+  Relationship relationship;
+  @HiveField(3)
+  String phoneNumber;
+
+  Contact(this.name, this.age, this.phoneNumber, this.relationship);
+}
 
 void main() async {
   await Hive.initFlutter();
-  Hive.registerAdapter(ColoredPathAdapter());
-  await Hive.openBox<ColoredPath>(sketchBox);
-  runApp(DrawApp());
+  Hive.registerAdapter<Contact>(ContactAdapter());
+  Hive.registerAdapter<Relationship>(RelationshipAdapter());
+  await Hive.openBox<Contact>(contactsBoxName);
+  runApp(MyApp());
 }
 
-class DrawApp extends StatelessWidget {
+class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    print("DrawApp重新渲染");
     return MaterialApp(
-      home: Scaffold(body: DrawingScreen()),
+      title: 'Contacts App',
+      home: Scaffold(
+        appBar: AppBar(
+          title: Text('Contacts App with Hive'),
+        ),
+        body: ValueListenableBuilder(
+          valueListenable: Hive.box<Contact>(contactsBoxName).listenable(),
+          builder: (context, Box<Contact> box, _) {
+            if (box.values.isEmpty)
+              return Center(
+                child: Text("No contacts"),
+              );
+            return ListView.builder(
+              itemCount: box.values.length,
+              itemBuilder: (context, index) {
+                Contact currentContact = box.getAt(index);
+                String relationship =
+                    relationshipString[currentContact.relationship];
+                return Card(
+                  clipBehavior: Clip.antiAlias, 
+                  child: InkWell(
+                    onLongPress: () {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: true,
+                        child: AlertDialog(
+                          content: Text(
+                            "Do you want to delete ${currentContact.name}?",
+                          ),
+                          actions: <Widget>[
+                            FlatButton(
+                              child: Text("No"),
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                            FlatButton(
+                              child: Text("Yes"),
+                              onPressed: () async {
+                                await box.deleteAt(index);
+                                Navigator.of(context).pop();
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          SizedBox(height: 5),
+                          Text(currentContact.name),
+                          SizedBox(height: 5),
+                          Text(currentContact.phoneNumber),
+                          SizedBox(height: 5),
+                          Text("Age: ${currentContact.age}"),
+                          SizedBox(height: 5),
+                          Text("Relationship: $relationship"),
+                          SizedBox(height: 5),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        floatingActionButton: Builder(
+          builder: (context) {
+            return FloatingActionButton(
+              child: Icon(Icons.add),
+              onPressed: () {
+                Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => AddContact()));
+              },
+            );
+          },
+        ),
+      ),
     );
   }
 }
 
-class ColoredPath {
-  static const colors = [
-    Colors.black,
-    Colors.red,
-    Colors.green,
-    Colors.blue,
-    Colors.amber,
-  ];
+class AddContact extends StatefulWidget {
+  final formKey = GlobalKey<FormState>();
 
-  static List<Paint> _paints;
+  @override
+  _AddContactState createState() => _AddContactState();
+}
 
-  Paint get paint {
-    if (_paints == null) {
-      _paints = [];
-      for (var color in colors) {
-        _paints.add(
-          Paint()
-            ..strokeCap = StrokeCap.round
-            ..isAntiAlias = true
-            ..color = color
-            ..strokeWidth = 3
-            ..style = PaintingStyle.stroke,
-        );
-      }
+class _AddContactState extends State<AddContact> {
+  String name;
+  int age;
+  String phoneNumber;
+  Relationship relationship;
+
+  void onFormSubmit() {
+    if (widget.formKey.currentState.validate()) {
+      Box<Contact> contactsBox = Hive.box<Contact>(contactsBoxName);
+      contactsBox.add(Contact(name, age, phoneNumber, relationship));
+      Navigator.of(context).pop();
     }
-    return _paints[colorIndex];
   }
 
-  final int colorIndex;
-
-  final path = Path();
-
-  List<Offset> points = [];
-
-  ColoredPath(this.colorIndex);
-
-  void addPoint(Offset point) {
-    if (points.isEmpty) {
-      path.moveTo(point.dx, point.dy);
-    } else {
-      path.lineTo(point.dx, point.dy);
-    }
-    points.add(point);
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Form(
+            key: widget.formKey,
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  TextFormField(
+                    autofocus: true,
+                    initialValue: "",
+                    decoration: const InputDecoration(
+                      labelText: "Name",
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        name = value;
+                      });
+                    },
+                  ),
+                  TextFormField(
+                    keyboardType: TextInputType.number,
+                    initialValue: "",
+                    maxLength: 3,
+                    maxLengthEnforced: true,
+                    decoration: const InputDecoration(
+                      labelText: "Age",
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        age = int.parse(value);
+                      });
+                    },
+                  ),
+                  TextFormField(
+                    keyboardType: TextInputType.phone,
+                    initialValue: "",
+                    decoration: const InputDecoration(
+                      labelText: "Phone",
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        phoneNumber = value;
+                      });
+                    },
+                  ),
+                  DropdownButton<Relationship>(
+                    items: relationshipString.keys.map((Relationship value) {
+                      return DropdownMenuItem<Relationship>(
+                        value: value,
+                        child: Text(relationshipString[value]),
+                      );
+                    }).toList(),
+                    value: relationship,
+                    hint: Text("Relationship"),
+                    onChanged: (value) {
+                      setState(() {
+                        relationship = value;
+                      });
+                    },
+                  ),
+                  OutlineButton(
+                    child: Text("Submit"),
+                    onPressed: onFormSubmit,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
-class ColoredPathAdapter extends TypeAdapter<ColoredPath> {
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
+// **************************************************************************
+// TypeAdapterGenerator
+// **************************************************************************
+
+class RelationshipAdapter extends TypeAdapter<Relationship> {
+  @override
+  final typeId = 1;
+
+  @override
+  Relationship read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 0:
+        return Relationship.Family;
+      case 1:
+        return Relationship.Friend;
+      default:
+        return null;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, Relationship obj) {
+    switch (obj) {
+      case Relationship.Family:
+        writer.writeByte(0);
+        break;
+      case Relationship.Friend:
+        writer.writeByte(1);
+        break;
+    }
+  }
+}
+
+class ContactAdapter extends TypeAdapter<Contact> {
   @override
   final typeId = 0;
 
   @override
-  ColoredPath read(BinaryReader reader) {
-    var path = ColoredPath(reader.readByte());
-    var len = reader.readUint32();
-    for (var i = 0; i < len; i++) {
-      path.addPoint(Offset(reader.readDouble(), reader.readDouble()));
-    }
-    return path;
-  }
-
-  @override
-  void write(BinaryWriter writer, ColoredPath obj) {
-    writer.writeByte(obj.colorIndex);
-    writer.writeUint32(obj.points.length);
-    for (var point in obj.points) {
-      writer.writeDouble(point.dx);
-      writer.writeDouble(point.dy);
-    }
-  }
-}
-
-class DrawingScreen extends StatefulWidget {
-  @override
-  _DrawingScreenState createState() => _DrawingScreenState();
-}
-
-class _DrawingScreenState extends State<DrawingScreen> {
-  var selectedColorIndex = 0;
-
-  @override
-  Widget build(BuildContext context) {
-    print("DrawingScreen重新渲染");
-    return Column(
-      children: <Widget>[
-        Expanded(
-          child: Stack(
-            children: <Widget>[
-              ValueListenableBuilder(
-                valueListenable: Hive.box<ColoredPath>(sketchBox).listenable(),
-                builder: drawPathsFromBox,
-              ),
-              DrawingArea(selectedColorIndex),
-            ],
-          ),
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            for (var i = 0; i < ColoredPath.colors.length; i++)
-              buildColorCircle(i),
-            ClearButton(),
-            UndoButton(),
-          ],
-        ),
-        SizedBox(height: 20),
-      ],
+  Contact read(BinaryReader reader) {
+    var numOfFields = reader.readByte();
+    var fields = <int, dynamic>{
+      for (var i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
+    };
+    return Contact(
+      fields[0] as String,
+      fields[1] as int,
+      fields[3] as String,
+      fields[2] as Relationship,
     );
   }
 
-  Widget drawPathsFromBox(
-    BuildContext context,
-    Box<ColoredPath> box,
-    Widget child,
-  ) {
-    return Stack(
-      children: <Widget>[
-        for (var path in box.values)
-          CustomPaint(
-            size: Size.infinite,
-            painter: PathPainter(path),
-          ),
-      ],
-    );
-  }
-
-  Widget buildColorCircle(int colorIndex) {
-    var selected = selectedColorIndex == colorIndex;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          selectedColorIndex = colorIndex;
-        });
-      },
-      child: ClipOval(
-        child: Container(
-          padding: const EdgeInsets.only(bottom: 16.0),
-          height: selected ? 50 : 36,
-          width: selected ? 50 : 36,
-          color: ColoredPath.colors[colorIndex],
-        ),
-      ),
-    );
-  }
-}
-
-class DrawingArea extends StatefulWidget {
-  final int selectedColorIndex;
-
-  DrawingArea(this.selectedColorIndex);
-
   @override
-  _DrawingAreaState createState() => _DrawingAreaState();
-}
-
-class _DrawingAreaState extends State<DrawingArea> {
-  var path = ColoredPath(0);
-
-  @override
-  Widget build(BuildContext context) {
-    print("DrawingArea重新渲染");
-    return GestureDetector(
-      onPanUpdate: (details) {
-        print(details.globalPosition);
-        addPoint(details.globalPosition);
-      },
-      onPanStart: (details) {
-        path = ColoredPath(widget.selectedColorIndex);
-        addPoint(details.globalPosition);
-      },
-      onPanEnd: (details) {
-        Hive.box<ColoredPath>(sketchBox).add(path);
-        setState(() {
-          path = ColoredPath(0);
-        });
-      },
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: PathPainter(path),
-      ),
-    );
-  }
-
-  void addPoint(Offset point) {
-    var renderBox = context.findRenderObject() as RenderBox;
-    setState(() {
-      path.addPoint(renderBox.globalToLocal(point));
-    });
-  }
-}
-
-class PathPainter extends CustomPainter {
-  final ColoredPath path;
-
-  PathPainter(this.path);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawPath(path.path, path.paint);
-  }
-
-  @override
-  bool shouldRepaint(PathPainter oldDelegate) => true;
-}
-
-class ClearButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    print("ClearButton重新渲染");
-    return ValueListenableBuilder(
-      valueListenable: Hive.box<ColoredPath>(sketchBox).listenable(),
-      builder: (context, box, _) {
-        return IconButton(
-          icon: Icon(Icons.delete),
-          onPressed: box.length == 0 ? null : () => box.clear(),
-        );
-      },
-    );
-  }
-}
-
-class UndoButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    print("UndoButton重新渲染");
-    return ValueListenableBuilder(
-      valueListenable: Hive.box<ColoredPath>(sketchBox).listenable(),
-      builder: (context, box, _) {
-        return IconButton(
-          icon: Icon(Icons.undo),
-          onPressed:
-              box.length == 0 ? null : () => box.deleteAt(box.length - 1),
-        );
-      },
-    );
+  void write(BinaryWriter writer, Contact obj) {
+    writer
+      ..writeByte(4)
+      ..writeByte(0)
+      ..write(obj.name)
+      ..writeByte(1)
+      ..write(obj.age)
+      ..writeByte(2)
+      ..write(obj.relationship)
+      ..writeByte(3)
+      ..write(obj.phoneNumber);
   }
 }
